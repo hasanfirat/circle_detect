@@ -5,7 +5,7 @@ import detector_code
 prev_frame_time = 0
 new_frame_time = 0
 
-roi = cv2.imread("hu.png")
+roi = cv2.imread("u.png")
 color_g = np.array([20,30,30]), np.array([85,255,255])
 resim_yukseklik, resim_genislik, _ = roi.shape
 roi, islencek_goruntu,motor_hareket = detector_code.main_islem(roi, color_g)
