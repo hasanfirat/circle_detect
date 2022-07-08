@@ -1,0 +1,263 @@
+from math import radians, cos, sin, pi, sqrt, pow
+import cv2
+import numpy as np
+import time
+
+def kamera_islem(goruntu):
+    color_g = np.array([20,80,80]), np.array([80,255,255]) #20 80
+    roi,inrange = main_islem(goruntu, color_g)
+    roi = kamera_xy_cizgi(roi)
+    return roi,inrange
+
+def main_islem(roi, color_g):
+    lower_color_HSV, upper_color_HSV = color_g
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    islencek_goruntu = cv2.inRange(hsv, lower_color_HSV, upper_color_HSV)
+    #kernel = np.ones((2,2),np.uint8)
+    #islencek_goruntu = cv2.erode(islencek_goruntu, kernel, iterations=2)
+    #islencek_goruntu = cv2.dilate(islencek_goruntu, kernel, iterations=1)
+    contours, hiyerarsi = cv2.findContours(islencek_goruntu, cv2.RETR_CCOMP,cv2.CHAIN_APPROX_NONE) #none hepsini alır.
+    resim_yukseklik, resim_genislik, _ = roi.shape
+    cam_orta_nokta_x, cam_orta_nokta_y = int(resim_genislik/2), int(resim_yukseklik/2)
+    if len(contours)>0:
+        roi, odak = goruntu_tarama(roi, contours, hiyerarsi, resim_yukseklik, resim_genislik)
+        if odak is not None:
+            uzaklikx, uzakliky, roi= nesneye_kalibre(cam_orta_nokta_x, cam_orta_nokta_y, odak,roi)
+    return roi, islencek_goruntu
+
+def goruntu_tarama( roi, contours, hiyerarsi, resim_yukseklik, resim_genislik):
+    goruntu_tarandi = True
+    sonuc_sayisi = 0
+    if goruntu_tarandi == True and sonuc_sayisi == 0:
+        roi,sonuc_sayisi,goruntu_tarandi, odak = cember_tarama(sonuc_sayisi, roi, contours, hiyerarsi, resim_yukseklik, resim_genislik,goruntu_tarandi)
+    return roi, odak
+
+def cember_tarama(sonuc_sayisi, roi, contours, hiyerarsi, resim_yukseklik, resim_genislik,goruntu_tarandi):
+    gecerli_dizi_hiyerarsi = []
+    gecerli_dizi = []
+    gecerli_dizi_say = []    
+    gecerli_dizi_u = []
+    
+    for k in range(len(contours)):
+        if len(contours[k])>10:
+            nesne_yukseklik, nesne_genislik, angle_rect, nesne_orta_nokta_x, nesne_orta_nokta_y, bnd_x, bnd_y, bnd_w, bnd_h, nesne_box, rect = size_data(contours[k])            
+            hiyer = hiyerarsi[0][k]
+            Next, Previous, First_Child, Parent = hiyer[0],hiyer[1],hiyer[2],hiyer[3]
+            alan = nesne_genislik*nesne_yukseklik
+            if Parent == -1:                    
+                sonuc_sayisi += 1
+                gecerli_dizi.append(contours[k])
+                while True == dizide_deger_ara(gecerli_dizi_say,alan):
+                    alan-=1
+                gecerli_dizi_say.append(alan)
+                gecerli_dizi_hiyerarsi.append([Parent,k])
+                gecerli_dizi_u.append([nesne_orta_nokta_x,nesne_orta_nokta_y,nesne_genislik,nesne_yukseklik])
+    gruplama_gecerli_dizi = []
+    gruplama_gecerli_dizi_say = []
+    gruplama_gecerli_dizi_hiyerarsi = []
+    gruplama_gecerli_dizi_u = []
+    
+    ellallah = []
+
+    if len(gecerli_dizi) > 0:
+        for i in range(len(gecerli_dizi)):
+            a_x, a_y, a_w, a_h = gecerli_dizi_u[i][0],gecerli_dizi_u[i][1],gecerli_dizi_u[i][2],gecerli_dizi_u[i][3]
+            a,g,u,n,e = [],[],[],[],[]
+            for l in range(len(gecerli_dizi)):
+                b_x, b_y, b_w, b_h = gecerli_dizi_u[l][0],gecerli_dizi_u[l][1],gecerli_dizi_u[l][2],gecerli_dizi_u[l][3]
+                if b_x - b_w < a_x < b_x + b_w and a_x - a_w < b_x < a_x + a_w and False == dizide_deger_ara(ellallah,l): #or da eklenebilir
+                    ellallah.append(gecerli_dizi_say[l])
+                    a.append(gecerli_dizi[l])
+                    g.append(gecerli_dizi_say[l])
+                    u.append(gecerli_dizi_hiyerarsi[l])
+                    e.append(gecerli_dizi_u[l])
+            #kıyasül dizi
+            if False == dizi_kiyaslama(gruplama_gecerli_dizi_say, g):
+                gruplama_gecerli_dizi.append(a)
+                gruplama_gecerli_dizi_say.append(g)
+                gruplama_gecerli_dizi_hiyerarsi.append(u)
+                gruplama_gecerli_dizi_u.append(e)
+
+    hedef_ctr = []
+    odak = None
+
+    if len(gruplama_gecerli_dizi) > 0:
+        aranan_grup_i = 0
+        ebci = listede_deger_arama_2d(gecerli_dizi_u, -1, 3)
+        for i in range(len(gruplama_gecerli_dizi_u)):
+            for e in range(len(gruplama_gecerli_dizi_u[i])):
+                if gruplama_gecerli_dizi_u[i][e][3] == gecerli_dizi_u[ebci][3]:
+                    aranan_grup_i = i
+                    
+        enci = listede_deger_arama_2d(gruplama_gecerli_dizi_u[aranan_grup_i], -1, 1)
+        for e in range(len(gruplama_gecerli_dizi_u[aranan_grup_i])):
+            if e == enci:
+                hedef_ctr = gruplama_gecerli_dizi[aranan_grup_i][e]        
+                es = e
+
+        actr = hedef_ctr
+        nesne_yukseklik, nesne_genislik, angle_rect, nesne_orta_nokta_x, nesne_orta_nokta_y, bnd_x, bnd_y, bnd_w, bnd_h, nesne_box, rect = size_data(actr)
+        cv2.putText(roi, "pinger", (nesne_orta_nokta_x,nesne_orta_nokta_y), cv2.FONT_HERSHEY_SIMPLEX,0.5, (0,0,255), 1, cv2.LINE_AA)
+        odak = nesne_orta_nokta_x, nesne_orta_nokta_y,bnd_w, bnd_h,nesne_yukseklik, nesne_genislik, 90, 90 #sonuc,,orani
+    return roi,sonuc_sayisi,goruntu_tarandi, odak
+
+def drawing_ellipse(nesne_orta_nokta_x, nesne_orta_nokta_y, angle_rect,nesne_yukseklik, nesne_genislik,ctr):
+    cizilen_elips_tam = []
+    angle = radians(180-angle_rect)
+    kabulx = int(nesne_genislik*0.07)
+    kabuly = int(nesne_yukseklik*0.07)
+    if kabulx < 3:
+        kabulx=3
+    if kabuly < 3:
+        kabuly=3
+    steps_jump = int(kabulx/3)
+    if(steps_jump > 1):
+        pass
+    else:
+        steps_jump = 1
+    steps = int(360 * ((uzun_olan(nesne_genislik, nesne_yukseklik)/57)))
+    
+    for t in range(steps):        
+        x_orj = int(nesne_genislik * cos(2 * pi * t/steps))
+        y_orj = int(nesne_yukseklik * sin(2 * pi * t/steps))
+        y = int(x_orj*cos(angle) - y_orj*sin(angle))
+        x = int(x_orj*sin(angle) + y_orj*cos(angle))
+        if 0 == t%steps_jump:
+            cizilen_elips_tam.append([x,y])
+    veriler = nesne_orta_nokta_x, nesne_orta_nokta_y,cizilen_elips_tam,kabulx,kabuly
+    sonuc = hesaplama(ctr,veriler)
+    return sonuc
+
+def hesaplama(ctr,veriler):
+    sayac = 0
+    nesne_orta_nokta_x, nesne_orta_nokta_y,cizilen_elips_tam,kabulx,kabuly = veriler
+    for a in ctr:
+        x,y = a[0],a[1]
+        dogruluk = True
+        for i in cizilen_elips_tam:
+            if dogruluk == True and nesne_orta_nokta_x+kabulx > x+i[0] > nesne_orta_nokta_x-kabulx and nesne_orta_nokta_y+kabuly > y+i[1] > nesne_orta_nokta_y-kabuly:
+                sayac += 1
+                dogruluk = False
+    return int((sayac/len(ctr))*100)
+
+def nesneye_kalibre(cam_orta_nokta_x, cam_orta_nokta_y, odak,roi):
+    nesne_orta_nokta_x, nesne_orta_nokta_y,bnd_w, bnd_h,nesne_yukseklik, nesne_genislik, sonuci, orani = odak
+    uzaklikx = -(cam_orta_nokta_x - nesne_orta_nokta_x)
+    uzakliky = cam_orta_nokta_y - nesne_orta_nokta_y
+    ar, ra, _= roi.shape
+    cv2.putText(roi, "X:" + str(uzaklikx) + " Y:" + str(uzakliky), (cam_orta_nokta_x,cam_orta_nokta_y), cv2.FONT_HERSHEY_SIMPLEX,0.5, (0,0,0), 1, cv2.LINE_AA)
+    if True:
+        if bnd_w < 200 and bnd_h < 200:
+            pt1 = (nesne_orta_nokta_x-100, nesne_orta_nokta_y-100)
+            pt2 = (nesne_orta_nokta_x+100, nesne_orta_nokta_y+100)
+        else:
+            pt1 = (int(nesne_orta_nokta_x-(15 + bnd_w*0.1)),int(nesne_orta_nokta_y-(bnd_h*0.5)))
+            pt2 = (int(nesne_orta_nokta_x+(15 + bnd_w*0.1)),int(nesne_orta_nokta_y+(bnd_h*0.5)))
+        cv2.rectangle(roi, pt1,pt2,(255,0,0), 2)
+
+    return uzaklikx, uzakliky, roi
+
+def size_data(ctr):
+    rect = cv2.minAreaRect(ctr)
+    nesne_yukseklik, nesne_genislik = int(rect[1][0]/2),int(rect[1][1]/2)
+    angle_rect = int(rect[2])
+    nesne_orta_nokta_x, nesne_orta_nokta_y = int(rect[0][0]),int(rect[0][1])
+    (bnd_x, bnd_y, bnd_w, bnd_h) = cv2.boundingRect(ctr)
+    box = cv2.boxPoints(rect)
+    nesne_box = np.int0(box)
+    return nesne_yukseklik,nesne_genislik,angle_rect,nesne_orta_nokta_x,nesne_orta_nokta_y,bnd_x,bnd_y,bnd_w,bnd_h,nesne_box, rect
+
+def kamera_xy_cizgi( ior):
+    resim_yukseklik,resim_genislik,_ = ior.shape
+    for i in range(0, resim_yukseklik ):
+        ior[i, int(resim_genislik/2)] = [0,150,150]
+    for i in range(0, resim_genislik ):
+        ior[int(resim_yukseklik/2), i] = [0,150,150]
+    return ior
+
+def uzaklik_hesaplayici(ana_govde_x, ana_govde_y, secilen_govde_x,secilen_govde_y):
+    return sqrt(pow((ana_govde_x-secilen_govde_x),2) + pow((ana_govde_y-secilen_govde_y),2))
+
+def ebob(i,k):
+    if i >= k:
+        return k/i
+    else:
+        return i/k
+
+def uzun_olan(k,l):
+    if k > l:
+        return k
+    else:
+        return l
+
+def kisa_olan(k,l):
+    if k > l:
+        return l
+    else:
+        return k
+
+def listede_deger_arama(listem,a):
+    furtem = sorted(listem)
+    aranandeger = furtem[a]
+    arananindis = None
+    for i in range(len(listem)):
+        if aranandeger == listem[i]:
+            arananindis = i
+    return arananindis
+
+def listede_deger_arama_2d(listem,a,b):
+    muntestem = []
+    for i in range(len(listem)):
+        muntestem.append(listem[i][b])
+    furtem = sorted(muntestem)
+    aranandeger = furtem[a]
+    arananindis = None
+    for i in range(len(listem)):
+        if aranandeger == listem[i][b]:
+            arananindis = i
+            break
+    if arananindis is not None:
+        return arananindis
+
+
+def fps_func(prev_frame_time,new_frame_time):
+    new_frame_time = time.time()
+    fps = 1/(new_frame_time-prev_frame_time)
+    prev_frame_time = new_frame_time
+    fps = str(int(fps))
+    return fps, prev_frame_time, new_frame_time
+
+def dizide_deger_arama(listem,a,b):
+    buul = False
+    for i in listem:
+        if a == i or b == i:
+            buul = True
+    return buul
+
+def dizide_deger_ara(listem,a):
+    buul = False
+    for i in listem:
+        if a == i:
+            buul = True
+    return buul
+
+def dizi_kiyaslama(listust,listalt):
+    buul = False
+    for i in listust:
+        for u in i:
+            for h in listalt:
+                if h == u:
+                    buul = True
+    return buul
+
+def kontur_kucult(kontur, ust, nesne_genislik,nesne_yukseklik):
+    M = cv2.moments(kontur)
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+    cnt_norm = kontur - [cx, cy]
+    scaled = ((100 / (uzun_olan(nesne_genislik,nesne_yukseklik)/ust))/100)
+    cnt_scaled = cnt_norm * scaled
+    cnt_scaled = cnt_scaled + [cx, cy]
+    cnt_scaled = cnt_scaled.astype(np.int32)
+    data = np.vstack(list(set(tuple(row[0]) for row in cnt_scaled)))
+    return data
