@@ -6,8 +6,10 @@
 - OpenCV library
 
 for Windows
-`pip install opencv-python 
-pip install numpy`
+<br>
+`pip install opencv-python`
+<br>
+`pip install numpy`
 
 yükseklik(b) ve genişliği(a) bilinen orta noktası (h,k) olan bir elipsin çizimi;
 
